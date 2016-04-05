@@ -144,4 +144,14 @@ class ContainerTest extends \PHPUnit_Framework_TestCase {
 
 		$container->value('aOtherValue', 2);
 	}
+
+	public function testConfig()
+	{
+		$container = (new Container())
+			->value('Test', 'Value')
+			->config(['TestProvider', function($testProvider){
+
+			}])
+			->boot();
+	}
 }

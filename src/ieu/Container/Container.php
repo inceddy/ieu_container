@@ -260,7 +260,7 @@ class Container implements \ArrayAccess {
 	public function service($name, $service)
 	{
 		$dependenciesAndService = self::getDependencyArray($service);
-		return $this->provider($name, ['factory' => ['ieInjector', function($injector) use ($dependenciesAndService) {
+		return $this->provider($name, ['factory' => ['Injector', function($injector) use ($dependenciesAndService) {
 			return $injector->instantiate($dependenciesAndService);
 		}]]);
 	}
