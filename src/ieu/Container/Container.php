@@ -11,6 +11,47 @@
 
 namespace ieu\Container;
 
+
+/**
+ * Extracts the parameter names of the given callable or 
+ * of the constructor of the given classname.
+ *
+ * @throws Exception if not a callable or classname without __contruct method was given.
+ *
+ * @param  mixed $callableOrClassname  The callable or the classname
+ *
+ * @return array                       The parameter names
+ * 
+ */
+	
+function extractParameter($callableOrClassname) {
+	switch (true) {
+		// Handle closure
+		case is_object($callableOrClassname) && $callableOrClassname instanceof \Closure:
+			$parameters = (new \ReflectionFunction($callableOrClassname))->getParameters();
+			break;
+		
+		// Handle object and method array
+		case is_array($callableOrClassname) && is_callable($callableOrClassname):
+			$class = is_string($callableOrClassname[0]) ? $callableOrClassname[0] : get_class($callableOrClassname[0]);
+			$parameters = (new \ReflectionMethod($class . '::' . $callableOrClassname[1]))->getParameters();
+			break;
+
+		// Handle class name
+		case is_string($callableOrClassname) && class_exists($callableOrClassname):
+			$parameters = (new \ReflectionMethod($callableOrClassname . '::__construct'))->getParameters();
+			break;
+
+		default:
+			throw new \Exception("Dependencies could not be extracted");
+	}
+
+	return array_map(function(\ReflectionParameter $parameter){
+		return $parameter->name;
+	}, $parameters);
+}
+
+
 /**
  * Container class inspired by the dependency injection of the AngularJS Framework.
  * @author Philipp Steingrebe <philipp@steingrebe.de>
@@ -116,10 +157,15 @@ class Container implements \ArrayAccess {
 			return $this->invoke($factory, $name);
 		});
 
+		// Implement container as provider
+		$this->provider('Container', ['factory' => [function(){
+			return $this;
+		}]]);
+
 		// Implement instance injector as provider
-		$this->provider('ieInjector', new SimpleProvider([function() {
+		$this->provider('Injector', ['factory' => [function() {
 			return $this->instanceInjector;
-		}]));
+		}]]);
 	}
 
 	/**
@@ -130,10 +176,12 @@ class Container implements \ArrayAccess {
 	 * @param  mixed $argument The argument to check
 	 *
 	 * @return array           The dependency array
+	 * 
 	 */
 	
 	public static function getDependencyArray($argument)
 	{
+		// Argument is a valid dependency array
 		if (
 			// DependencyArray with callable as last element
 			(is_array($argument) && is_callable(end($argument))) ||
@@ -143,49 +191,11 @@ class Container implements \ArrayAccess {
 			return $argument;
 		}
 
-		$dependencies = self::getDependenciesFromParameters($argument);
-		array_push($dependencies, $argument);
-		return $dependencies;
-	}
+		// Extract parameter from argument and combine it to an dependency array
+		$parameter = extractParameter($argument);
+		array_push($parameter, $argument);
 
-
-	/**
-	 * Extracts the parameter names of the given callable or 
-	 * of the constructor of the giben classname.
-	 *
-	 * @throws Exception if not a callable or classname was given.
-	 *
-	 * @param  mixed $callableOrClassname  The callable or the classname
-	 *
-	 * @return array                       The parameter names
-	 * 
-	 */
-	
-	private static function getDependenciesFromParameters($callableOrClassname)
-	{
-		switch (true) {
-			// Handle closure
-			case is_object($callableOrClassname) && $callableOrClassname instanceof \Closure:
-				$parameters = (new \ReflectionFunction($callableOrClassname))->getParameters();
-				break;
-			
-			// Handle object and method array
-			case is_array($callableOrClassname) && is_callable($callableOrClassname):
-				$class = is_string($callableOrClassname[0]) ? $callableOrClassname[0] : get_class($callableOrClassname[0]);
-				$parameters = (new \ReflectionMethod($class . '::' . $callableOrClassname[1]))->getParameters();
-				break;
-
-			case is_string($callableOrClassname) && class_exists($callableOrClassname):
-				$parameters = (new \ReflectionMethod($callableOrClassname . '::__construct'))->getParameters();
-				break;
-
-			default:
-				throw new \Exception("Dependencies could not be extracted");
-		}
-
-		return array_map(function(\ReflectionParameter $parameter){
-			return $parameter->name;
-		}, $parameters);
+		return $parameter;
 	}
 
 
@@ -198,22 +208,42 @@ class Container implements \ArrayAccess {
 	 *
 	 * @throws Exception if the container is already bootet.
 	 *
-	 * @param  string            $name     The name of the provider
-	 * @param  ieu\Core\Provider $provider The Provider
+	 * @param  string                  $name     The name of the provider
+	 * @param  ieu\Core\Provider|array $provider The Provider or an Array with a 'factory' key
 	 *
 	 * @return self
 	 * 
 	 */
 	
-	public function provider($name, Provider $provider)
+	public function provider($name, $provider)
 	{
 		if ($this->state === self::STATE_BOOTED) {
 			throw new \Exception("The container is already booted");
-			
+		}
+
+		if (!is_object($provider) && !is_array($provider)) {
+			throw new \Exception("The Provider must be an array or an object");
+		}
+
+		if (is_array($provider)) {
+			$provider = (object)$provider;
 		}
 
 		$this->providerCache[$name . 'Provider'] = $provider;
 		return $this;
+	}
+
+	public function decorator($name, $decorator)
+	{
+		$instanceInjector = $this->instanceInjector;
+
+		$orgProvider = $this->providerInjector->get($name . 'Provider');
+		$orgFactory  = $orgProvider->factory;
+
+		$orgProvider->factory = function() use ($instanceInjector) {
+			$orgInstance = $instanceInjector->invoke($orgFactory);
+			return $instanceInjector->invoke($decorator->factory, ['orgInstance' => $orgInstance]);
+		};
 	}
 
 
@@ -230,9 +260,9 @@ class Container implements \ArrayAccess {
 	public function service($name, $service)
 	{
 		$dependenciesAndService = self::getDependencyArray($service);
-		return $this->provider($name, new SimpleProvider(['ieInjector', function($injector) use ($dependenciesAndService) {
+		return $this->provider($name, ['factory' => ['ieInjector', function($injector) use ($dependenciesAndService) {
 			return $injector->instantiate($dependenciesAndService);
-		}]));
+		}]]);
 	}
 
 
@@ -249,7 +279,7 @@ class Container implements \ArrayAccess {
 	public function factory($name, $factory)
 	{
 		$dependenciesAndFactory = self::getDependencyArray($factory);
-		return $this->provider($name, new SimpleProvider($dependenciesAndFactory));
+		return $this->provider($name, ['factory' => $dependenciesAndFactory]);
 	}
 
 
@@ -270,6 +300,18 @@ class Container implements \ArrayAccess {
 		}]);
 	}
 
+
+	/**
+	 * Register a new constant.
+	 * Constants are available during configuration state.
+	 *
+	 * @param  string $name  The name of the constant
+	 * @param  mixed  $value The constant
+	 *
+	 * @return self
+	 * 
+	 */
+	
 	public function constant($name, $value)
 	{
 		$this->providerCache[$name] = $value;
@@ -285,6 +327,13 @@ class Container implements \ArrayAccess {
 	}
 
 
+	/**
+	 * Run all configurations and set container state to bottet
+	 *
+	 * @return self
+	 * 
+	 */
+	
 	public function boot()
 	{
 		$this->state = self::STATE_CONFIG;
@@ -303,7 +352,7 @@ class Container implements \ArrayAccess {
 	}
 
 	/**
-	 * Injector methods
+	 * Get a container dependen
 	 */
 
 	public function offsetGet($name)

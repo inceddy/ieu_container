@@ -34,6 +34,20 @@ class Injector {
 
 	private $factory;
 
+
+	/**
+	 * Get a unique StdClass instance
+	 * 
+	 * @return StdClass
+	 * 
+	 */
+	
+	public static function INITIAL()
+	{
+		static $initial;
+		return isset($initial) ? $initial : $initial = new \StdClass();
+	}
+
 	public function __construct($cache, \Closure $factory)
 	{
 		$this->cache = $cache;
@@ -70,9 +84,15 @@ class Injector {
 	public function get($name)
 	{
 		if ($this->has($name)) {
+			if ($this->cache[$name] === self::INITIAL()) {
+				throw new \Exception("Ring dependency found for $name.");
+			}
 			return $this->cache[$name];
 		}
 
+
+
+		$this->cache[$name] = self::INITIAL();
 		$this->cache[$name] = call_user_func($this->factory, $name);
 
 		return $this->cache[$name];
@@ -83,14 +103,17 @@ class Injector {
 	 * Invokes the given factory with the dependencies.
 	 *
 	 * @param  array  $dependenciesAndFactory The dependencies and the factory
+	 * @param  array  $localDependecies       The array with local depencies not coming from the injector cache (Eg. org instance for decorators)
 	 *
 	 * @return mixed                          The factory result
 	 * 
 	 */
 	
-	public function invoke(array $dependenciesAndFactory) {
+	public function invoke(array $dependenciesAndFactory, $localDependencies = []) {
 		$factory = array_pop($dependenciesAndFactory);
-		$dependencies = array_map([$this, 'get'], $dependenciesAndFactory);
+		$dependencies = array_map(function($name) use ($localDependencies) {
+			return isset($localDependencies[$name]) ? $localDependencies[$name] : $this->get($name);
+		}, $dependenciesAndFactory);
 
 		return call_user_func_array($factory, $dependencies);
 	}
