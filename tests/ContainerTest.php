@@ -5,6 +5,7 @@ use ieu\Container\Container;
 include __DIR__ . '/fixtures/SomeService.php';
 include __DIR__ . '/fixtures/SomeFactory.php';
 include __DIR__ . '/fixtures/SomeProviderWithOptions.php';
+include __DIR__ . '/fixtures/SomeActionController.php';
 
 /**
  * @author  Philipp Steingrebe <philipp@steingrebe.de>
@@ -153,5 +154,23 @@ class ContainerTest extends \PHPUnit_Framework_TestCase {
 
 			}])
 			->boot();
+	}
+
+	public function testLateBind()
+	{
+		$container = (new Container)
+			// Some simple values
+			->value('Dep1', 'A')
+			->value('Dep2', 'B')
+
+			// Some provider
+			->provider('Controller', new SomeActionControllerProvider())
+
+			// Some factory using a provider function as factory
+			->factory('ActionOne', ['Dep1', 'Dep2', ['Controller', 'actionOne']])
+			->factory('ActionTwo', ['Dep2', 'Dep1', ['Controller', 'actionTwo']]);
+
+		$this->assertEquals($container['ActionOne'], 'A B');
+		$this->assertEquals($container['ActionTwo'], 'B A');
 	}
 }

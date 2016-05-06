@@ -11,6 +11,11 @@
 
 namespace ieu\Container;
 
+use ArrayObject;
+use StdClass;
+use Closure;
+use InvalidArgumentException;
+
 /**
  * Injector class inspired by the dependency injection of the AngularJS Framework.
  * @author Philipp Steingrebe <philipp@steingrebe.de>
@@ -36,7 +41,7 @@ class Injector {
 
 
 	/**
-	 * Get a unique StdClass instance
+	 * Gets a unique StdClass instance
 	 * 
 	 * @return StdClass
 	 * 
@@ -44,11 +49,22 @@ class Injector {
 	
 	public static function INITIAL()
 	{
-		static $initial;
-		return isset($initial) ? $initial : $initial = new \StdClass();
+		static $initial = null;
+		return $initial ?: $initial = new StdClass();
 	}
 
-	public function __construct($cache, \Closure $factory)
+
+	/**
+	 * Constructor
+	 *
+	 * @param ArrayObject $cache    the cache
+	 * @param Closure     $factory  the factory
+	 *
+	 * @return self
+	 * 
+	 */
+	
+	public function __construct(ArrayObject $cache, Closure $factory)
 	{
 		$this->cache = $cache;
 		$this->factory = $factory->bindTo($this);
@@ -109,11 +125,18 @@ class Injector {
 	 * 
 	 */
 	
-	public function invoke(array $dependenciesAndFactory, $localDependencies = []) {
+	public function invoke(array $dependenciesAndFactory, $localDependencies = []) 
+	{
 		$factory = array_pop($dependenciesAndFactory);
 		$dependencies = array_map(function($name) use ($localDependencies) {
 			return isset($localDependencies[$name]) ? $localDependencies[$name] : $this->get($name);
 		}, $dependenciesAndFactory);
+
+		// If the factory is a class-method-array and the class does not exsit,
+		// try to resolve the object in this injector.
+		if (is_array($factory) && !is_callable($factory)) {
+			$factory[0] = $this->get($factory[0]);
+		}
 
 		return call_user_func_array($factory, $dependencies);
 	}
@@ -128,7 +151,8 @@ class Injector {
 	 * 
 	 */
 	
-	public function instantiate(array $dependenciesAndConstructor) {
+	public function instantiate(array $dependenciesAndConstructor) 
+	{
 		$constructor = array_pop($dependenciesAndConstructor);
 		$dependencies = array_map([$this, 'get'], $dependenciesAndConstructor);
 
@@ -136,6 +160,6 @@ class Injector {
 			return new $constructor(...$dependencies);
 		}
 
-		throw new \Exception(sprintf("Instantiation of % not possible.", end($dependenciesAndConstructor)));
+		throw new InvalidArgumentException(sprintf("Instantiation of % not possible.", end($dependenciesAndConstructor)));
 	}
 }
