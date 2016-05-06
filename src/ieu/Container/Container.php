@@ -11,6 +11,14 @@
 
 namespace ieu\Container;
 
+use Closure;
+use ArrayObject;
+use ArrayAccess;
+use ReflectionMethod;
+use ReflectionFunction;
+use ReflectionParameter;
+use Exception;
+
 
 /**
  * Extracts the parameter names of the given callable or 
@@ -27,26 +35,26 @@ namespace ieu\Container;
 function extractParameter($callableOrClassname) {
 	switch (true) {
 		// Handle closure
-		case is_object($callableOrClassname) && $callableOrClassname instanceof \Closure:
-			$parameters = (new \ReflectionFunction($callableOrClassname))->getParameters();
+		case $callableOrClassname instanceof Closure:
+			$parameters = (new ReflectionFunction($callableOrClassname))->getParameters();
 			break;
 		
 		// Handle object and method array
 		case is_array($callableOrClassname) && is_callable($callableOrClassname):
 			$class = is_string($callableOrClassname[0]) ? $callableOrClassname[0] : get_class($callableOrClassname[0]);
-			$parameters = (new \ReflectionMethod($class . '::' . $callableOrClassname[1]))->getParameters();
+			$parameters = (new ReflectionMethod($class . '::' . $callableOrClassname[1]))->getParameters();
 			break;
 
 		// Handle class name
 		case is_string($callableOrClassname) && class_exists($callableOrClassname):
-			$parameters = (new \ReflectionMethod($callableOrClassname . '::__construct'))->getParameters();
+			$parameters = (new ReflectionMethod($callableOrClassname . '::__construct'))->getParameters();
 			break;
 
 		default:
-			throw new \Exception("Dependencies could not be extracted");
+			throw new Exception("Dependencies could not be extracted");
 	}
 
-	return array_map(function(\ReflectionParameter $parameter){
+	return array_map(function(ReflectionParameter $parameter){
 		return $parameter->name;
 	}, $parameters);
 }
@@ -57,7 +65,7 @@ function extractParameter($callableOrClassname) {
  * @author Philipp Steingrebe <philipp@steingrebe.de>
  */
 
-class Container implements \ArrayAccess {
+class Container implements ArrayAccess {
 
 	/**
 	 * Default state after instanciation
@@ -140,21 +148,23 @@ class Container implements \ArrayAccess {
 		$this->state = self::STATE_INITIAL;
 
 		// Setup cache
-		$this->providerCache = new \ArrayObject();
-		$this->instanceCache = new \ArrayObject();
+		$this->providerCache = new ArrayObject();
+		$this->instanceCache = new ArrayObject();
 
 		// Provider injector
 		$providerInjector =
 		$this->providerInjector = new Injector($this->providerCache, function($name){
 			$name = substr($name, 0, -8);
-			throw new \Exception("Provider for '$name' not found");
+			throw new Exception("Provider for '$name' not found");
 		});
 
 		// Instance injector
 		$this->instanceInjector = new Injector($this->instanceCache, function($name) use ($providerInjector) {
+
 			$provider = $providerInjector->get($name . 'Provider');
 			$factory = Container::getDependencyArray($provider->factory);
 			return $this->invoke($factory, $name);
+
 		});
 
 		// Implement container as provider
@@ -186,7 +196,9 @@ class Container implements \ArrayAccess {
 			// DependencyArray with callable as last element
 			(is_array($argument) && is_callable(end($argument))) ||
 			// DependencyArray with classname as last element
-			(is_array($argument) && is_string(end($argument)) && !is_callable($argument))
+			(is_array($argument) && is_string(end($argument)) && class_exists(end($argument))) ||
+			// DependencyArray with providername and mehtod array als last element
+			(is_array($argument) && is_array(end($argument)))
 		) {
 			return $argument;
 		}
@@ -218,11 +230,11 @@ class Container implements \ArrayAccess {
 	public function provider($name, $provider)
 	{
 		if ($this->state === self::STATE_BOOTED) {
-			throw new \Exception("The container is already booted");
+			throw new Exception("The container is already booted");
 		}
 
 		if (!is_object($provider) && !is_array($provider)) {
-			throw new \Exception("The Provider must be an array or an object");
+			throw new Exception("The Provider must be an array or an object");
 		}
 
 		if (is_array($provider)) {
@@ -267,7 +279,7 @@ class Container implements \ArrayAccess {
 
 
 	/**
-	 * Register a new factorx
+	 * Register a new factory
 	 *
 	 * @param  string $name     The name of the factory
 	 * @param  mixed  $factory  The factory
@@ -352,7 +364,7 @@ class Container implements \ArrayAccess {
 	}
 
 	/**
-	 * Get a container dependen
+	 * Get a container dependency
 	 */
 
 	public function offsetGet($name)
