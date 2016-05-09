@@ -24,34 +24,39 @@ use Exception;
  * Extracts the parameter names of the given callable or 
  * of the constructor of the given classname.
  *
- * @throws Exception if not a callable or classname without __contruct method was given.
- *
  * @param  mixed $callableOrClassname  The callable or the classname
  *
- * @return array                       The parameter names
+ * @return array<string>               The parameter names or an empty array if nothing was extrected
  * 
  */
 	
-function extractParameter($callableOrClassname) {
+function extractParameters($callableOrClassname) {
 	switch (true) {
 		// Handle closure
 		case $callableOrClassname instanceof Closure:
 			$parameters = (new ReflectionFunction($callableOrClassname))->getParameters();
 			break;
 		
-		// Handle object and method array
+		// Handle clasname-object-method-array
 		case is_array($callableOrClassname) && is_callable($callableOrClassname):
 			$class = is_string($callableOrClassname[0]) ? $callableOrClassname[0] : get_class($callableOrClassname[0]);
 			$parameters = (new ReflectionMethod($class . '::' . $callableOrClassname[1]))->getParameters();
 			break;
 
+		// Handle callable-string classname::method or function name
+		case is_string($callableOrClassname) && is_callable($callableOrClassname):
+			$parameters = strpos($callableOrClassname, '::') ?
+								(new ReflectionMethod($callableOrClassname))->getParameters() :
+								(new ReflectionFunction($callableOrClassname))->getParameters();
+			break;
+		
 		// Handle class name
 		case is_string($callableOrClassname) && class_exists($callableOrClassname):
 			$parameters = (new ReflectionMethod($callableOrClassname . '::__construct'))->getParameters();
 			break;
 
 		default:
-			throw new Exception("Dependencies could not be extracted");
+			return [];
 	}
 
 	return array_map(function(ReflectionParameter $parameter){
@@ -135,11 +140,11 @@ class Container implements ArrayAccess {
 
 
 	/**
-	 * Creates a new module with name {$name} which depends on 
-	 * the modules in {$modules}.
+	 * Creates a new container.
+	 * The provider cache of all given Container instances will be merged
+	 * into this container.
 	 *
-	 * @param string $name    The name of this module
-	 * @param array  $modules The names of modules to load
+	 * @param ieu\Container\Container  The containers to merge with this container
 	 */
 	
 	public function __construct()
@@ -150,6 +155,43 @@ class Container implements ArrayAccess {
 		// Setup cache
 		$this->providerCache = new ArrayObject();
 		$this->instanceCache = new ArrayObject();
+
+		foreach (func_get_args() as $container) {
+			if ($container instanceof Container) {
+				foreach ($container->getProviderCache() as $name => $provider) {
+					$this->providerCache[$name] = $provider;
+				}
+			}
+		}
+
+		$this->buildInjectors();
+	}
+
+	/**
+	 * Gets the provider cache
+	 *
+	 * @return ArrayObject  The provider cache.
+	 */
+	
+	public function getProviderCache()
+	{
+		return $this->providerCache;
+	}
+
+
+	/**
+	 * Gets the instance cache
+	 *
+	 * @return ArrayObject  The instance cache.
+	 */
+	
+	public function getInstanceCache()
+	{
+		return $this->instanceCache;
+	}
+
+	private function buildInjectors()
+	{
 
 		// Provider injector
 		$providerInjector =
@@ -179,34 +221,36 @@ class Container implements ArrayAccess {
 	}
 
 	/**
-	 * Checks if an callable or a classname is wraped in a dependency array
+	 * Checks if an callable or a classname is wraped in a dependency-factory-array
 	 * `['aDependency', 'aOtherDependency', $callableOrClassname]`.
-	 * If not the argument will be wraped.
+	 * If not the argument will be treated as factory and the dependencys will be
+	 * extracted from the function, method or constructor arguments.
 	 *
-	 * @param  mixed $argument The argument to check
+	 * @see ieu\Container\
 	 *
-	 * @return array           The dependency array
+	 * @param  mixed $argument  The argument to check whether it is a valid depedency-factory-array
+	 *                          or just a factory.
+	 *
+	 * @return array            The dependency array
 	 * 
 	 */
 	
 	public static function getDependencyArray($argument)
 	{
-		// Argument is a valid dependency array
-		if (
-			// DependencyArray with callable as last element
-			(is_array($argument) && is_callable(end($argument))) ||
-			// DependencyArray with classname as last element
-			(is_array($argument) && is_string(end($argument)) && class_exists(end($argument))) ||
-			// DependencyArray with providername and mehtod array als last element
-			(is_array($argument) && is_array(end($argument)))
-		) {
-			return $argument;
+		// Must condition: A dependency-factory-array is an array
+		if (is_array($argument)) {
+			// Must condition: A last element in a dependency-factory-array is
+			//                 - an array: [ClassName|Object, Method]
+			//                 - an callable: Closure, Invokeable, ClassName::StaticMethod-string
+			//                 - an classname
+			if (is_array(end($argument)) || is_callable(end($argument)) || class_exists(end($argument))) {
+				return $argument;
+			}
 		}
 
-		// Extract parameter from argument and combine it to an dependency array
-		$parameter = extractParameter($argument);
+		// Try to extract parameters from argument and combine it to an dependency-factory-array
+		$parameter = extractParameters($argument);
 		array_push($parameter, $argument);
-
 		return $parameter;
 	}
 
@@ -242,6 +286,7 @@ class Container implements ArrayAccess {
 		}
 
 		$this->providerCache[$name . 'Provider'] = $provider;
+
 		return $this;
 	}
 
@@ -332,7 +377,18 @@ class Container implements ArrayAccess {
 		return $this;
 	}
 
-	public function config($config)
+
+	/**
+	 * Adds a dependency-callable-array to this comfig stack.
+	 * On boot all callables will be called with the given dependencies.
+	 *
+	 * @param  array  $config  The dependency-callable-array
+	 *
+	 * @return self
+	 * 
+	 */
+	
+	public function config(array $config)
 	{
 		$this->configs[] = $config;
 		return $this;

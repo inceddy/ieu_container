@@ -173,4 +173,20 @@ class ContainerTest extends \PHPUnit_Framework_TestCase {
 		$this->assertEquals($container['ActionOne'], 'A B');
 		$this->assertEquals($container['ActionTwo'], 'B A');
 	}
+
+	public function testContainerMerge()
+	{
+		$container_1 = (new Container)
+			->value('A', 1);
+
+		$container_2 = (new Container)
+			->value('B', 2);
+
+		$container = (new Container($container_1, $container_2))
+			->value('C', 3);
+
+		assertEquals($container['A'], 1);
+		assertEquals($container['B'], 2);
+		assertEquals($container['C'], 3);
+	}
 }
