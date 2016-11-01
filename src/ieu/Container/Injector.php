@@ -160,6 +160,6 @@ class Injector {
 			return new $constructor(...$dependencies);
 		}
 
-		throw new InvalidArgumentException(sprintf("Instantiation of % not possible.", end($dependenciesAndConstructor)));
+		throw new InvalidArgumentException(sprintf("Instantiation of %s not possible.", $constructor));
 	}
 }
