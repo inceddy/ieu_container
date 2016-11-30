@@ -161,6 +161,10 @@ class Container implements ArrayAccess {
 				foreach ($container->getProviderCache() as $name => $provider) {
 					$this->providerCache[$name] = $provider;
 				}
+
+				foreach ($container->getInstanceCache() as $name => $provider) {
+					$this->providerCache[$name] = $provider;
+				}
 			}
 		}
 
@@ -202,6 +206,11 @@ class Container implements ArrayAccess {
 
 		// Instance injector
 		$this->instanceInjector = new Injector($this->instanceCache, function($name) use ($providerInjector) {
+
+			// Constant
+			if ($providerInjector->has($name)) {
+				return $providerInjector->get($name);
+			}
 
 			$provider = $providerInjector->get($name . 'Provider');
 			$factory = Container::getDependencyArray($provider->factory);
