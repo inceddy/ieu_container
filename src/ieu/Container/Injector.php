@@ -41,6 +41,14 @@ class Injector {
 
 
 	/**
+	 * Helper to resolve errors while booting the container.
+	 * @var StackTracer
+	 */
+	
+	public $tracer;
+
+
+	/**
 	 * Gets a unique StdClass instance
 	 * 
 	 * @return StdClass
@@ -64,10 +72,11 @@ class Injector {
 	 * 
 	 */
 	
-	public function __construct(ArrayObject $cache, Closure $factory)
+	public function __construct(ArrayObject $cache, Closure $factory, StackTracer $tracer)
 	{
 		$this->cache = $cache;
 		$this->factory = $factory->bindTo($this);
+		$this->tracer = $tracer;
 	}
 
 
@@ -101,7 +110,8 @@ class Injector {
 	{
 		if ($this->has($name)) {
 			if ($this->cache[$name] === self::INITIAL()) {
-				throw new \Exception("Ring dependency found for $name.");
+				$this->tracer->depends([$name . ' Ring!']);
+				throw new \Exception("Ring dependency found for $name.\n" . $this->tracer);
 			}
 			return $this->cache[$name];
 		}
@@ -128,9 +138,13 @@ class Injector {
 	public function invoke(array $dependenciesAndFactory, $localDependencies = []) 
 	{
 		$factory = array_pop($dependenciesAndFactory);
-		$dependencies = array_map(function($name) use ($localDependencies) {
-			return isset($localDependencies[$name]) ? $localDependencies[$name] : $this->get($name);
-		}, $dependenciesAndFactory);
+
+		// Resolve dependencies
+		$dependencies =  [];
+		$this->tracer->depends($dependenciesAndFactory);
+		foreach($dependenciesAndFactory as $key => $name) {
+			$dependencies[$key] = isset($localDependencies[$name]) ? $localDependencies[$name] : $this->get($name);
+		}
 
 		// If the factory is a class-method-array and the class does not exsit,
 		// try to resolve the object in this injector.
@@ -154,12 +168,22 @@ class Injector {
 	public function instantiate(array $dependenciesAndConstructor) 
 	{
 		$constructor = array_pop($dependenciesAndConstructor);
-		$dependencies = array_map([$this, 'get'], $dependenciesAndConstructor);
+		
+		// Resolve dependencies
+		$dependencies = [];
+		$this->tracer->depends($dependenciesAndConstructor);
+		foreach ($dependenciesAndConstructor as $key => $name) {
+			$dependencies[$key] = $this->get($name);
+		};
 
 		if (is_string($constructor) && class_exists($constructor)) {
 			return new $constructor(...$dependencies);
 		}
 
-		throw new InvalidArgumentException(sprintf("Instantiation of %s not possible.", $constructor));
+		if (!is_string($constructor)) {
+			$constructor = print_r($constructor, true);
+		}
+
+		throw new InvalidArgumentException(sprintf("Instantiation of %s not possible.\n%s", $constructor, $this->tracer));
 	}
 }

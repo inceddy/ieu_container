@@ -177,16 +177,32 @@ class ContainerTest extends \PHPUnit_Framework_TestCase {
 	public function testContainerMerge()
 	{
 		$container_1 = (new Container)
-			->value('A', 1);
+			->value('A', 1)
+			->constant('C1', 1);
 
 		$container_2 = (new Container)
-			->value('B', 2);
+			->value('B', 2)
+			->constant('C2', 2);
 
 		$container = (new Container($container_1, $container_2))
-			->value('C', 3);
+			->value('C', 3)
+			->constant('C3', 3);
 
-		assertEquals($container['A'], 1);
-		assertEquals($container['B'], 2);
-		assertEquals($container['C'], 3);
+		$this->assertEquals($container['A'], 1);
+		$this->assertEquals($container['B'], 2);
+		$this->assertEquals($container['C'], 3);
+
+		$this->assertEquals($container['C1'], 1);
+		$this->assertEquals($container['C2'], 2);
+		$this->assertEquals($container['C3'], 3);
+	}
+
+	public function testRingDependencies()
+	{
+		$container = (new Container)
+			->factory('A', ['B', function($b){}])
+			->factory('B', ['A', function($a){}]);
+
+		$container['A'];
 	}
 }

@@ -196,27 +196,39 @@ class Container implements ArrayAccess {
 
 	private function buildInjectors()
 	{
+		$this->tracer = new StackTracer;
 
 		// Provider injector
 		$providerInjector =
-		$this->providerInjector = new Injector($this->providerCache, function($name){
+		$this->providerInjector = new Injector($this->providerCache, function($name) {
 			$name = substr($name, 0, -8);
-			throw new Exception("Provider for '$name' not found");
-		});
+			throw new Exception("Provider for '$name' not found\n" . $this->tracer);
+		}, $this->tracer);
 
 		// Instance injector
 		$this->instanceInjector = new Injector($this->instanceCache, function($name) use ($providerInjector) {
 
+
+			$this->tracer->open($name);
+
 			// Constant
 			if ($providerInjector->has($name)) {
+				$this->tracer->close();
 				return $providerInjector->get($name);
 			}
 
 			$provider = $providerInjector->get($name . 'Provider');
+			
+			// Determin factory dependencies
 			$factory = Container::getDependencyArray($provider->factory);
-			return $this->invoke($factory, $name);
 
-		});
+			$instance = $this->invoke($factory, $name);
+
+			$this->tracer->close();
+
+			return $instance;
+
+		}, $this->tracer);
 
 		// Implement container as provider
 		$this->provider('Container', ['factory' => [function(){
