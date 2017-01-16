@@ -143,7 +143,7 @@ class Injector {
 		$dependencies =  [];
 		$this->tracer->depends($dependenciesAndFactory);
 		foreach($dependenciesAndFactory as $key => $name) {
-			$dependencies[$key] = isset($localDependencies[$name]) ? $localDependencies[$name] : $this->get($name);
+			$dependencies[$key] = array_key_exists($name, $localDependencies) ? $localDependencies[$name] : $this->get($name);
 		}
 
 		// If the factory is a class-method-array and the class does not exsit,
