@@ -222,7 +222,7 @@ class Container implements ArrayAccess {
 			// Determin factory dependencies
 			$factory = Container::getDependencyArray($provider->factory);
 
-			$instance = $this->invoke($factory, $name);
+			$instance = $this->invoke($factory);
 
 			$this->tracer->close();
 
