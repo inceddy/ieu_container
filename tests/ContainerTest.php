@@ -188,6 +188,7 @@ class ContainerTest extends \PHPUnit_Framework_TestCase {
 			->value('C', 3)
 			->constant('C3', 3);
 
+
 		$this->assertEquals($container['A'], 1);
 		$this->assertEquals($container['B'], 2);
 		$this->assertEquals($container['C'], 3);
@@ -197,11 +198,16 @@ class ContainerTest extends \PHPUnit_Framework_TestCase {
 		$this->assertEquals($container['C3'], 3);
 	}
 
+	/**
+	 * @expectedException LogicException
+	 */
+	
 	public function testRingDependencies()
 	{
 		$container = (new Container)
 			->factory('A', ['B', function($b){}])
 			->factory('B', ['A', function($a){}]);
+
 
 		$container['A'];
 	}

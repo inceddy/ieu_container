@@ -3,7 +3,7 @@
 /*
  * This file is part of ieUtilities - Container.
  *
- * (c) 2016 Philipp Steingrebe <philipp@steingrebe.de>
+ * (c) 2017 Philipp Steingrebe <philipp@steingrebe.de>
  *
  * For the full copyright and license information, please view the LICENSE
  * file that was distributed with this source code.
@@ -15,6 +15,7 @@ use ArrayObject;
 use StdClass;
 use Closure;
 use InvalidArgumentException;
+use LogicException;
 
 /**
  * Injector class inspired by the dependency injection of the AngularJS Framework.
@@ -72,7 +73,7 @@ class Injector {
 	 * 
 	 */
 	
-	public function __construct(ArrayObject $cache, Closure $factory, StackTracer $tracer)
+	public function __construct(ArrayObject $cache, Closure $factory, Tracer $tracer)
 	{
 		$this->cache = $cache;
 		$this->factory = $factory->bindTo($this);
@@ -89,7 +90,7 @@ class Injector {
 	 * 
 	 */
 	
-	public function has($name) 
+	public function has($name) : bool
 	{
 		return isset($this->cache[$name]);
 	}
@@ -106,20 +107,19 @@ class Injector {
 	 * 
 	 */
 	
-	public function get($name)
+	public function get(string $name)
 	{
-		if ($this->has($name)) {
-			if ($this->cache[$name] === self::INITIAL()) {
-				$this->tracer->depends([$name . ' Ring!']);
-				throw new \Exception("Ring dependency found for $name.\n" . $this->tracer);
-			}
-			return $this->cache[$name];
+		if (!$this->has($name)) {
+			$this->cache[$name] = self::INITIAL();
+			$this->cache[$name] = call_user_func($this->factory, $name);
 		}
 
+		// Test for ring dependency
+		if ($this->cache[$name] === self::INITIAL()) {
+			$this->tracer->note($name . ' is  Ring!');
+			throw new LogicException("Ring dependency found for $name.\n" . $this->tracer);
+		}
 
-
-		$this->cache[$name] = self::INITIAL();
-		$this->cache[$name] = call_user_func($this->factory, $name);
 
 		return $this->cache[$name];
 	}
@@ -128,20 +128,24 @@ class Injector {
 	/**
 	 * Invokes the given factory with the dependencies.
 	 *
-	 * @param  array  $dependenciesAndFactory The dependencies and the factory
-	 * @param  array  $localDependecies       The array with local depencies not coming from the injector cache (Eg. org instance for decorators)
+	 * @param  array  $dependenciesAndFactory 
+	 *    The dependencies and the factory
+	 * @param  array  $localDependecies
+	 *    The array with local depencies not coming from 
+	 *    the injector cache (E.g. org instance for decorators)
 	 *
-	 * @return mixed                          The factory result
-	 * 
+	 * @return mixed
+	 *    The factory result
+	 *    
 	 */
 	
-	public function invoke(array $dependenciesAndFactory, $localDependencies = []) 
+	public function invoke(array $dependenciesAndFactory, array $localDependencies = []) 
 	{
 		$factory = array_pop($dependenciesAndFactory);
 
 		// Resolve dependencies
 		$dependencies =  [];
-		$this->tracer->depends($dependenciesAndFactory);
+		$this->tracer->dependsOn($dependenciesAndFactory);
 		foreach($dependenciesAndFactory as $key => $name) {
 			$dependencies[$key] = array_key_exists($name, $localDependencies) ? $localDependencies[$name] : $this->get($name);
 		}
@@ -159,9 +163,11 @@ class Injector {
 	/**
 	 * Instantiates the given class with the dependencies.
 	 *
-	 * @param  array  $dependenciesAndConstructor The dependencies and the class name
+	 * @param  array  $dependenciesAndConstructor 
+	 *    The dependencies and the class name
 	 *
-	 * @return mixed                              The new instance of the given class
+	 * @return mixed 
+	 *    The new instance of the given class
 	 * 
 	 */
 	
@@ -171,11 +177,12 @@ class Injector {
 		
 		// Resolve dependencies
 		$dependencies = [];
-		$this->tracer->depends($dependenciesAndConstructor);
+		$this->tracer->dependsOn($dependenciesAndConstructor);
 		foreach ($dependenciesAndConstructor as $key => $name) {
 			$dependencies[$key] = $this->get($name);
 		};
 
+		// Constructor is class name
 		if (is_string($constructor) && class_exists($constructor)) {
 			return new $constructor(...$dependencies);
 		}

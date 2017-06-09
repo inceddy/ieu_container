@@ -3,7 +3,7 @@
 /*
  * This file is part of ieUtilities - Container.
  *
- * (c) 2016 Philipp Steingrebe <philipp@steingrebe.de>
+ * (c) 2017 Philipp Steingrebe <philipp@steingrebe.de>
  *
  * For the full copyright and license information, please view the LICENSE
  * file that was distributed with this source code.
@@ -30,7 +30,7 @@ use Exception;
  * 
  */
 	
-function extractParameters($callableOrClassname) {
+function extractParameters($callableOrClassname) : array {
 	switch (true) {
 		// Handle closure
 		case $callableOrClassname instanceof Closure:
@@ -76,19 +76,19 @@ class Container implements ArrayAccess {
 	 * Default state after instanciation
 	 */
 	
-	const STATE_INITIAL = 0;
+	private const STATE_INITIAL = 0;
 
 	/**
 	 * Config state while configurations are running
 	 */
 	
-	const STATE_CONFIG  = 10;
+	private const STATE_CONFIG  = 10;
 
 	/**
 	 * Completely booted
 	 */
 	
-	const STATE_BOOTED  = 20;
+	private const STATE_BOOTED  = 20;
 
 
 	/**
@@ -138,6 +138,13 @@ class Container implements ArrayAccess {
 	
 	private $state;
 
+	/**
+	 * Debugger
+	 * @var ieu\Container\Tracer
+	 */
+	
+	public $tracer;
+
 
 	/**
 	 * Creates a new container.
@@ -177,7 +184,7 @@ class Container implements ArrayAccess {
 	 * @return ArrayObject  The provider cache.
 	 */
 	
-	public function getProviderCache()
+	public function getProviderCache() : ArrayObject
 	{
 		return $this->providerCache;
 	}
@@ -189,46 +196,64 @@ class Container implements ArrayAccess {
 	 * @return ArrayObject  The instance cache.
 	 */
 	
-	public function getInstanceCache()
+	public function getInstanceCache() : ArrayObject
 	{
 		return $this->instanceCache;
 	}
 
+
+	/**
+	 * Sets up the provider and instance injectors
+	 *
+	 * @return void
+	 */
+	
 	private function buildInjectors()
 	{
-		$this->tracer = new StackTracer;
+		// Debug tracer
+		$this->tracer = new Tracer;
 
 		// Provider injector
 		$providerInjector =
-		$this->providerInjector = new Injector($this->providerCache, function($name) {
-			$name = substr($name, 0, -8);
-			throw new Exception("Provider for '$name' not found\n" . $this->tracer);
-		}, $this->tracer);
+		$this->providerInjector = new Injector(
+			// Cache
+			$this->providerCache, 
+			// Factory
+			function($name) {
+				$name = substr($name, 0, -8);
+				throw new Exception("Provider for '$name' not found\n" . $this->tracer);
+			}, 
+			// Debug tracer
+			$this->tracer
+		);
 
 		// Instance injector
-		$this->instanceInjector = new Injector($this->instanceCache, function($name) use ($providerInjector) {
+		$this->instanceInjector = new Injector(
+			// Cache
+			$this->instanceCache, 
+			// Factory
+			function($name) use ($providerInjector) {
+				$this->tracer->request($name);
 
+				// Constant
+				if ($providerInjector->has($name)) {
+					$instance = $providerInjector->get($name);
+				}
 
-			$this->tracer->open($name);
+				// Provider
+				else {
+					$provider = $providerInjector->get($name . 'Provider');
+					// Determin factory dependencies
+					$factoryAndDependencies = Container::getDependencyArray($provider->factory);
+					$instance = $this->invoke($factoryAndDependencies);
+				}
 
-			// Constant
-			if ($providerInjector->has($name)) {
-				$this->tracer->close();
-				return $providerInjector->get($name);
-			}
+				$this->tracer->received($name);
 
-			$provider = $providerInjector->get($name . 'Provider');
-			
-			// Determin factory dependencies
-			$factory = Container::getDependencyArray($provider->factory);
-
-			$instance = $this->invoke($factory);
-
-			$this->tracer->close();
-
-			return $instance;
-
-		}, $this->tracer);
+				return $instance;
+			}, 
+			$this->tracer
+		);
 
 		// Implement container as provider
 		$this->provider('Container', ['factory' => [function(){
@@ -371,7 +396,7 @@ class Container implements ArrayAccess {
 	 * 
 	 */
 	
-	public function value($name, $value)
+	public function value(string $name, $value)
 	{
 		return $this->factory($name, [function() use ($value) {
 			return $value;
@@ -390,7 +415,7 @@ class Container implements ArrayAccess {
 	 * 
 	 */
 	
-	public function constant($name, $value)
+	public function constant(string $name, $value)
 	{
 		$this->providerCache[$name] = $value;
 		$this->instanceCache[$name] = $value;
@@ -417,7 +442,7 @@ class Container implements ArrayAccess {
 
 
 	/**
-	 * Run all configurations and set container state to bottet
+	 * Run all configurations and set container state to `bootet`
 	 *
 	 * @return self
 	 * 
@@ -440,8 +465,54 @@ class Container implements ArrayAccess {
 		return $this;
 	}
 
+
 	/**
-	 * Get a container dependency
+	 * Alias for `ieu\Container\Container::offsetSet()`
+	 *
+	 * @param string $name
+	 *    The name of the value to set
+	 * @param mixed $value
+	 *    The value to set
+	 *
+	 * @return self
+	 * 
+	 */
+	
+	public function __set(string $name, $value)
+	{
+		return $this->value($name, $value);
+	}
+
+
+	/**
+	 * Alias for `ieu\Container\Container::offsetGet()`
+	 *
+	 * @param  string $name
+	 *    The name of the dependency to get
+	 *
+	 * @return mixed
+	 *    The dependency
+	 *    
+	 */
+	
+	public function __get(string $name)
+	{
+		return $this->offsetGet($name);
+	}
+
+
+	/**
+	 * Gets a dependency from the container.
+	 * If the container is not yet booted all configs will be run.
+	 *
+	 * Satisfies ArrayAcces interface.
+	 *
+	 * @param  string $name
+	 *    The name of the dependency to get
+	 *
+	 * @return mixed
+	 *    The dependency
+	 * 
 	 */
 
 	public function offsetGet($name)
@@ -453,17 +524,62 @@ class Container implements ArrayAccess {
 		return $this->instanceInjector->get($name);
 	}
 
+
+	/**
+	 * Sets container value.
+	 *
+	 * Satisfies ArrayAcces interface.
+	 *
+	 * @param  string $name
+	 *    The name of dependency value to set
+	 * @param  mixed $value
+	 *    The value to set
+	 *
+	 * @return self
+	 * 
+	 */
+	
 	public function offsetSet($name, $value)
 	{
 		return $this->value($name, $value);
 	}
 
+
+	/**
+	 * Returns whether a dependency instance or 
+	 * the corresponding provider exist within
+	 * this container.
+	 *
+	 * Satisfies ArrayAcces interface.
+	 *
+	 * @param  string $name
+	 *    The name of dependency value to check
+	 *
+	 * @return bool
+	 * 
+	 */
+	
 	public function offsetExists($name)
 	{
-		return $this->instanceInjector->has($name) || $this->providerInjector->has($name . 'Provider');
+		return $this->instanceInjector->has($name) || 
+		       $this->providerInjector->has($name . 'Provider');
 	}
 
-	public function offsetUnset($key)
+
+	/**
+	 * Must exist to satisfy the ArrayAccess interface
+	 * but is not implemented.
+	 *
+	 * @throws Exception allways as this method is not implemented
+	 *
+	 * @param  string $name
+	 *    The name to unset
+	 *
+	 * @return void
+	 * 
+	 */
+	
+	public function offsetUnset($name)
 	{
 		throw new \Exception("Not implemented");		
 	}
