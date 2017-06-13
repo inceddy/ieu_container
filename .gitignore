@@ -1,7 +1,8 @@
+
 *.sublime-workspace
 *.sublime-project
 *.local.*
-\_*
+/_*
 Thumbs.db
-/
-vendor/
+/vendor
+/tmp
