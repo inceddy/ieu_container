@@ -15,9 +15,11 @@ class Multiplier {
 	}
 }
 
-class SomeProviderWithOptions extends ieu\Container\Provider {
+class SomeProviderWithOptions {
 
 	private $factor = 1;
+
+	public $factory;
 
 	public function setFactor($factor) {
 		$this->factor = $factor;

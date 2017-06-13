@@ -12,9 +12,11 @@ class SomeActionController {
 	}
 }
 
-class SomeActionControllerProvider extends ieu\Container\Provider {
+class SomeActionControllerProvider {
 
 	private $factor = 2;
+
+	public $factory;
 
 	public function __construct()
 	{

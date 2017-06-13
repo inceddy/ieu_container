@@ -1,21 +1,16 @@
 <?php
 
-class SomeDecorator extends ieu\Container\Provider {
+class SomeDecorator {
 
 	private $factor = 2;
 
 	public function __construct()
 	{
-		$this->factory = ['orgInstance', [$this, 'factory']];
-	}
-
-	public function setFactor($factor) {
-		$this->factor = $factor;
+		$this->factory = ['DecoratedInstance', [$this, 'factory']];
 	}
 
 	public function factory($instance)
 	{
-		$this->orgInstance = $instance;
-		return new Multiplier($this->factor);
+		return $instance . 'World';
 	}
 }
