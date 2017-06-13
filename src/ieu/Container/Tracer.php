@@ -3,7 +3,7 @@
 /*
  * This file is part of ieUtilities - Container.
  *
- * (c) 2016 Philipp Steingrebe <philipp@steingrebe.de>
+ * (c) 2017 Philipp Steingrebe <philipp@steingrebe.de>
  *
  * For the full copyright and license information, please view the LICENSE
  * file that was distributed with this source code.
@@ -13,8 +13,23 @@ namespace ieu\Container;
 
 class Tracer {
 
+	/**
+	 * The action stack
+	 * @var array
+	 */
+	
 	private $stack = [];
 
+	
+	/**
+	 * Called on instance request
+	 *
+	 * @param  string $name
+	 *    The instance name
+	 *
+	 * @return void
+	 */
+	
 	public function request($name)
 	{
 		array_push($this->stack, [
@@ -23,6 +38,17 @@ class Tracer {
 		]);
 	}
 
+
+	/**
+	 * Callen before resolving the required
+	 * dependencies.
+	 *
+	 * @param  array  $dependencies
+	 *    The list of the dependency names
+	 *
+	 * @return void
+	 */
+	
 	public function dependsOn(array $dependencies)
 	{
 		array_push($this->stack, [
@@ -31,6 +57,16 @@ class Tracer {
 		]);
 	}
 
+	/**
+	 * Called to make a annotations during 
+	 * the instantiation process.
+	 *
+	 * @param  string $message
+	 *    The message to note
+	 *
+	 * @return void
+	 */
+	
 	public function note($message)
 	{
 		array_push($this->stack, [
@@ -39,6 +75,13 @@ class Tracer {
 		]);
 	}
 
+
+	/**
+	 * Called when instantiation is completed
+	 *
+	 * @return void
+	 */
+	
 	public function received()
 	{
 		array_push($this->stack, [
@@ -46,6 +89,15 @@ class Tracer {
 		]);
 	}
 
+
+	/**
+	 * Visualises the tracer stack.
+	 * Usefull to find errors within the
+	 * chain of dependency instantiations.
+	 *
+	 * @return string
+	 */
+	
 	public function __toString()
 	{
 		$level = 0;
