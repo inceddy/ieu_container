@@ -56,18 +56,18 @@ class Tracer {
 				case 'request':
 					$lines[] = str_repeat("\t", $level) . $action['name'] . ' requested ('; 
 					$level++;
-					continue;
+					break;
 				case 'dependsOn':
 					$deps = $action['dependencies'];
 					$lines[] = str_repeat("\t", $level) . 'Depedencies: ' . (empty($deps) ? 'none' : '[' . implode(', ', $deps) . ']'); 
-					continue;
+					break;
 				case 'note':
 					$lines[] = str_repeat("\t", $level) . 'Note: ' . $action['note'];
-					continue;
+					break;
 				case 'received':
 					$level--;
 					$lines[] = str_repeat("\t", $level) . ')';
-					continue;
+					break;
 			}
 		}
 
