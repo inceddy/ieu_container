@@ -90,7 +90,7 @@ class Injector {
 	 * 
 	 */
 	
-	public function has($name) : bool
+	public function has(string $name) : bool
 	{
 		return isset($this->cache[$name]);
 	}
@@ -133,30 +133,33 @@ class Injector {
 	 * @param  array  $localDependecies
 	 *    The array with local depencies not coming from 
 	 *    the injector cache (E.g. org instance for decorators)
+	 * @param array $arguments
+	 *    The array with mandatory arguments which is filled up
+	 *    with all required dependencies
 	 *
 	 * @return mixed
 	 *    The factory result
 	 *    
 	 */
 	
-	public function invoke(array $dependenciesAndFactory, array $localDependencies = []) 
+	public function invoke(array $dependenciesAndFactory, array $localDependencies = [], array $arguments = []) 
 	{
 		$factory = array_pop($dependenciesAndFactory);
 
 		// Resolve dependencies
-		$dependencies =  [];
 		$this->tracer->dependsOn($dependenciesAndFactory);
 		foreach($dependenciesAndFactory as $key => $name) {
-			$dependencies[$key] = array_key_exists($name, $localDependencies) ? $localDependencies[$name] : $this->get($name);
+			$arguments[] = array_key_exists($name, $localDependencies) ? $localDependencies[$name] : $this->get($name);
 		}
 
 		// If the factory is a class-method-array and the class does not exsit,
 		// try to resolve the object in this injector.
 		if (is_array($factory) && !is_callable($factory)) {
+			$this->tracer->note(sprintf('Try to resolve %s as factory object', $factory[0]));
 			$factory[0] = $this->get($factory[0]);
 		}
 
-		return call_user_func_array($factory, $dependencies);
+		return call_user_func_array($factory, $arguments);
 	}
 
 
@@ -165,26 +168,31 @@ class Injector {
 	 *
 	 * @param  array  $dependenciesAndConstructor 
 	 *    The dependencies and the class name
+	 * @param  array  $localDependecies
+	 *    The array with local depencies not coming from 
+	 *    the injector cache (E.g. org instance for decorators)
+	 * @param array $arguments
+	 *    The array with mandatory arguments which is filled up
+	 *    with all required dependencies
 	 *
 	 * @return mixed 
 	 *    The new instance of the given class
 	 * 
 	 */
 	
-	public function instantiate(array $dependenciesAndConstructor) 
+	public function instantiate(array $dependenciesAndConstructor, array $localDependencies = [], array $arguments = []) 
 	{
 		$constructor = array_pop($dependenciesAndConstructor);
 		
 		// Resolve dependencies
-		$dependencies = [];
 		$this->tracer->dependsOn($dependenciesAndConstructor);
 		foreach ($dependenciesAndConstructor as $key => $name) {
-			$dependencies[$key] = $this->get($name);
+			$arguments[] = array_key_exists($name, $localDependencies) ? $localDependencies[$name] : $this->get($name);
 		};
 
 		// Constructor is class name
 		if (is_string($constructor) && class_exists($constructor)) {
-			return new $constructor(...$dependencies);
+			return new $constructor(...$arguments);
 		}
 
 		if (!is_string($constructor)) {
