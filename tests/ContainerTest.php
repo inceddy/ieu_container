@@ -117,11 +117,28 @@ class ContainerTest extends PHPUnit_Framework_TestCase {
   {
     $value = 'The value';
     $factory = new SomeFactory();
-    $container = (new Container('Test'))
+    $container = (new Container)
       ->value('aValue', $value)
       ->factory('aFactory', ['aValue', [$factory, 'someMethod']]);
 
     $this->assertEquals($container['aFactory'], $value);
+  }
+
+  public function testFactoryWithInnerCallback()
+  {
+    $gotCalled = false;
+
+    $container = (new Container)
+      ->value('Dep', 1)
+      ->value('InnerCallback', function($dep) use (&$gotCalled) {
+        $gotCalled = true;
+        $this->assertEquals(1, $dep);
+      })
+      ->factory('Test', ['Dep', ['InnerCallback']]);
+
+    $container['Test'];
+
+    $this->assertTrue($gotCalled);
   }
 
   public function testProvider()

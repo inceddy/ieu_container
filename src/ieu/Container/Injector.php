@@ -156,7 +156,20 @@ class Injector {
 		// try to resolve the object in this injector.
 		if (is_array($factory) && !is_callable($factory)) {
 			$this->tracer->note(sprintf('Try to resolve %s as factory object', $factory[0]));
-			$factory[0] = $this->get($factory[0]);
+
+			// Object and method
+			if (sizeof($factory) === 2) {
+				$factory[0] = $this->get($factory[0]);
+			}
+			// Other callable
+			else if(sizeof($factory) === 1) {
+				$factory = $this->get($factory[0]);
+			}
+			// Unsupported factory
+			else {
+				$this->tracer->node('Factory: ' . print_r($factory, true));
+				throw new InvalidArgumentException('Can\'t handle factory' . (string) $tracer);
+			}
 		}
 
 		return call_user_func_array($factory, $arguments);
