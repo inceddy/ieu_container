@@ -18,6 +18,7 @@ use ReflectionMethod;
 use ReflectionFunction;
 use ReflectionParameter;
 use Exception;
+use InvalidArgumentException;
 
 
 /**
@@ -56,7 +57,9 @@ function extractParameters($callableOrClassname) : array {
 			break;
 
 		default:
-			return [];
+			throw new InvalidArgumentException(
+				sprintf('Cant extract parameters from given argument with type \'%s\'.', gettype($callableOrClassname))
+			);
 	}
 
 	return array_map(function(ReflectionParameter $parameter){
@@ -256,12 +259,12 @@ class Container implements ArrayAccess {
 		);
 
 		// Implement container as provider
-		$this->provider('Container', ['factory' => [function(){
+		$this->provider('Container', (object)['factory' => [function(){
 			return $this;
 		}]]);
 
 		// Implement instance injector as provider
-		$this->provider('Injector', ['factory' => [function() {
+		$this->provider('Injector', (object)['factory' => [function() {
 			return $this->instanceInjector;
 		}]]);
 	}
@@ -317,18 +320,14 @@ class Container implements ArrayAccess {
 	 * 
 	 */
 	
-	public function provider($name, $provider)
+	public function provider(string $name, $provider)
 	{
 		if ($this->state === self::STATE_BOOTED) {
 			throw new Exception("The container is already booted");
 		}
 
-		if (!is_object($provider) && !is_array($provider)) {
-			throw new Exception("The Provider must be an array or an object");
-		}
-
-		if (is_array($provider)) {
-			$provider = (object)$provider;
+		if (!is_object($provider) || !property_exists($provider, 'factory')) {
+			throw new InvalidArgumentException('The provider must be an object with public property \'factory\'.');
 		}
 
 		$this->providerCache[$name . 'Provider'] = $provider;
@@ -336,17 +335,44 @@ class Container implements ArrayAccess {
 		return $this;
 	}
 
+
+	/**
+	 * Register a new decorator which will overload
+	 * the factory of the given provider with the given name.
+	 *
+	 * The original instance can be injected using
+	 * `DecoratedInstance` as depedency.
+	 *
+	 * @throws Exception if the container is already bootet.
+	 *
+	 * @param  string $name
+	 *    The name to overload
+	 * @param  array|callable $decorator 
+	 *     The decorator
+	 *
+	 * @return self
+	 * 
+	 */
+
 	public function decorator($name, $decorator)
 	{
-		$instanceInjector = $this->instanceInjector;
+		$lagacyProvider = $this->providerInjector->get($name . 'Provider');
+		$lagacyFactory = $lagacyProvider->factory;
 
-		$orgProvider = $this->providerInjector->get($name . 'Provider');
-		$orgFactory  = $orgProvider->factory;
+		// If decorator is provider resolve factory
+		if (is_object($decorator) && property_exists($decorator, 'factory')) {
+			$decorator = $decorator->factory;
+		}
 
-		$orgProvider->factory = function() use ($instanceInjector) {
-			$orgInstance = $instanceInjector->invoke($orgFactory);
-			return $instanceInjector->invoke($decorator->factory, ['orgInstance' => $orgInstance]);
+		$decoratorAndDependencies = self::getDependencyArray($decorator);
+
+		// Overload old factory
+		$lagacyProvider->factory = function() use ($decoratorAndDependencies, $lagacyFactory) {
+			$decoratedInstance = $this->instanceInjector->invoke($lagacyFactory);
+			return $this->instanceInjector->invoke($decoratorAndDependencies, ['DecoratedInstance' => $decoratedInstance]);
 		};
+
+		return $this;
 	}
 
 
@@ -363,9 +389,15 @@ class Container implements ArrayAccess {
 	public function service($name, $service)
 	{
 		$dependenciesAndService = self::getDependencyArray($service);
-		return $this->provider($name, ['factory' => ['Injector', function($injector) use ($dependenciesAndService) {
-			return $injector->instantiate($dependenciesAndService);
-		}]]);
+		
+		return $this->provider(
+			$name, 
+			(object)['factory' => [
+				'Injector', function($injector) use ($dependenciesAndService) {
+					return $injector->instantiate($dependenciesAndService);
+				}
+			]]
+		);
 	}
 
 
@@ -382,7 +414,7 @@ class Container implements ArrayAccess {
 	public function factory($name, $factory)
 	{
 		$dependenciesAndFactory = self::getDependencyArray($factory);
-		return $this->provider($name, ['factory' => $dependenciesAndFactory]);
+		return $this->provider($name, (object)['factory' => $dependenciesAndFactory]);
 	}
 
 
