@@ -1,7 +1,7 @@
 # ieu\Container
 PHP Dependency Injection Container inspired by the AngularJS injector and Pimple\Container
 
-# Usage
+## Usage
 ```PHP
 use ieu\Container\Container;
 
@@ -76,12 +76,12 @@ A (slower) way is using the parameter names of the callable or constructor to sp
 
 *Note: This does not work with inner callbacks!*
 
-## Constant
+### Constant
 Constants can be defined using the `self ieu\Container\Container::constant(string $name, mixed $value)`-method.
 
 *Note: Constants are available during the provider configation cycle!*
 
-## Values
+### Values
 Values can be defined using the `self ieu\Container\Container::value(string $name, mixed $value)`-method.
 
 ```PHP
@@ -89,7 +89,7 @@ $container = (new Container)
 	->value('A', 'Value');
 ```
 
-## Factory
+### Factory
 Factorys can be defined using the `self ieu\Container\Container::factory(string $name, mixed $factory`-method.
 
 ```PHP
@@ -107,7 +107,7 @@ $container = (new Container)
 	}]);
 ```
 
-## Service
+### Service
 Services can be defined using the `self ieu\Container\Container::service(string $name, mixed $service)`-method.
 The service-method expects a class name or a dependency array with the class name as last element as argument. E.g. `['dependencyA', 'dependencyB', 'Vendor\\Project\\Service']` or just (slower) `'Vendor\\Project\\Service'` where the parameter names of the constructor are used to inject the dependencies. 
 
@@ -129,11 +129,57 @@ $container = (new Container)
 	->factory('Name', Foo::CLASS);
 ```
 
-## Decorator
-TODO
+### Decorator
+You can use the `self ieu\Container\Container::decorator(string $name, mixed $decorator)`-method to overload existing dependencies while receiving the original instance as local dependency. Decorators MUST be a `factory` or a `provider`.
 
-## Provider
-TODO
+```PHP
+$container = (new Container)
+	->factory('SomeName', [function(){
+		return 'Hello';
+	}])
+	->decorator('SomeName', ['DecoratedInstance', function($org) {
+		return $org . 'World';
+	}]);
 
-# Provider configuration
-TODO
+echo $container['SomeName']; // HelloWorld
+```
+
+### Provider
+A provider can be any object having the public property `factory` describing the factory as *dependency array*. A provider can be set using the `self ieu\Container\Container::provider(string $name, object $provider)`-method.
+
+Providers can be accessed during configuration process by using their name with `Provider` suffix as dependency.
+
+```PHP
+class PrefixerProvider {
+	private $prefix = 'Hello';
+
+	public $factory;
+
+	public function __construct()
+	{
+		$this->factory = ['Name', [$this, 'factory']];
+	}
+
+	public function setPrefix(string $prefix) : void
+	{
+		$this->prefix = $prefix;
+	}
+
+	public function factory(string $name) : string
+	{
+		return sprtinf('%s %s', $this->prefix, $name);
+	}
+}
+
+
+$container = (new Container)
+	->factory('Name', [function(){
+		return 'Justus';
+	}])
+	->provider('PrefixedName', new PrefixerProvider))
+	->config(['PrefixedNameProvider', function($provider) {
+		$provider->setPrefix('Goodbye');
+	}]);
+
+echo $container['PrefixedName']; // Goodbye Justus
+```
