@@ -11,7 +11,8 @@
 
 namespace ieu\Container;
 
-use ArrayObject;
+
+use Psr\SimpleCache\CacheInterface;
 use StdClass;
 use Closure;
 use InvalidArgumentException;
@@ -73,10 +74,10 @@ class Injector {
 	 * 
 	 */
 	
-	public function __construct(ArrayObject $cache, Closure $factory, Tracer $tracer)
+	public function __construct(CacheInterface $cache, Closure $factory, Tracer $tracer)
 	{
 		$this->cache = $cache;
-		$this->factory = $factory->bindTo($this);
+		$this->factory = $factory->bindTo($this, self::CLASS);
 		$this->tracer = $tracer;
 	}
 
@@ -92,7 +93,7 @@ class Injector {
 	
 	public function has(string $name) : bool
 	{
-		return isset($this->cache[$name]);
+		return $this->cache->has($name);
 	}
 
 
@@ -110,18 +111,49 @@ class Injector {
 	public function get(string $name)
 	{
 		if (!$this->has($name)) {
-			$this->cache[$name] = self::INITIAL();
-			$this->cache[$name] = call_user_func($this->factory, $name);
+			$this->cache->set($name, self::INITIAL());
+			$this->cache->set($name, call_user_func($this->factory, $name));
 		}
 
 		// Test for ring dependency
-		if ($this->cache[$name] === self::INITIAL()) {
+		if (self::INITIAL() === $dependency = $this->cache->get($name)) {
 			$this->tracer->note($name . ' is  Ring!');
 			throw new LogicException("Ring dependency found for $name.\n" . $this->tracer);
 		}
 
+		return $dependency;
+	}
 
-		return $this->cache[$name];
+	/**
+	 * Tries to resolve a callable factory
+	 * from an internal reference.
+	 *
+	 * If not resolveable `null` is returned.
+	 *
+	 * @param  mixed $factory
+	 *
+	 * @return mixed|null
+	 */
+	
+	private function resolveInnerCallable($factory)
+	{
+		switch (true) {
+			// Trivial case
+			case is_callable($factory):
+				return $factory;
+
+			case is_array($factory) && sizeof($factory) === 2:
+				$this->tracer->note('Trying te resolve \'' . (string)$factory[0] . '::' . (string)$factory[1] . '\' as factory');
+				$factory[0] = $this->get($factory[0]);
+				break;
+			case is_array($factory) && sizeof($factory) === 1:
+				$factory = $factory[0];
+				$this->tracer->note('Trying te resolve \'' . (string)$factory . '\' as factory');
+				$factory = $this->get($factory);
+				break;
+		}
+
+		return is_callable($factory) ? $factory : null;
 	}
 
 
@@ -148,28 +180,14 @@ class Injector {
 
 		// Resolve dependencies
 		$this->tracer->dependsOn($dependenciesAndFactory);
-		foreach($dependenciesAndFactory as $key => $name) {
+		foreach($dependenciesAndFactory as $name) {
 			$arguments[] = array_key_exists($name, $localDependencies) ? $localDependencies[$name] : $this->get($name);
 		}
 
 		// If the factory is a class-method-array and the class does not exsit,
 		// try to resolve the object in this injector.
-		if (is_array($factory) && !is_callable($factory)) {
-			$this->tracer->note(sprintf('Try to resolve %s as factory object', $factory[0]));
-
-			// Object and method
-			if (sizeof($factory) === 2) {
-				$factory[0] = $this->get($factory[0]);
-			}
-			// Other callable
-			else if(sizeof($factory) === 1) {
-				$factory = $this->get($factory[0]);
-			}
-			// Unsupported factory
-			else {
-				$this->tracer->node('Factory: ' . print_r($factory, true));
-				throw new InvalidArgumentException('Can\'t handle factory' . (string) $tracer);
-			}
+		if (null === $factory = $this->resolveInnerCallable($factory)) {
+			throw new InvalidArgumentException('Can\'t handle factory.' . (string)$this->tracer);
 		}
 
 		return call_user_func_array($factory, $arguments);
@@ -199,7 +217,7 @@ class Injector {
 		
 		// Resolve dependencies
 		$this->tracer->dependsOn($dependenciesAndConstructor);
-		foreach ($dependenciesAndConstructor as $key => $name) {
+		foreach ($dependenciesAndConstructor as $name) {
 			$arguments[] = array_key_exists($name, $localDependencies) ? $localDependencies[$name] : $this->get($name);
 		};
 

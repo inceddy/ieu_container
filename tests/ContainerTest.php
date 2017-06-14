@@ -2,6 +2,7 @@
 
 use ieu\Container\Container;
 use ieu\Container\Injector;
+use ieu\Container\ArrayCache;
 
 require_once __DIR__ . '/fixtures/SomeDecorator.php';
 require_once __DIR__ . '/fixtures/SomeService.php';
@@ -15,18 +16,31 @@ require_once __DIR__ . '/fixtures/Foo.php';
  */
 class ContainerTest extends PHPUnit_Framework_TestCase {
 
+  public function testConstant()
+  {
+    $gotCalled = false;
+
+    $container = (new Container)->constant('c', 1);
+
+    $container->config(['c', function($c) use (&$gotCalled) {
+      $this->assertEquals(1, $c);
+      $gotCalled = true;
+    }]);
+
+    $this->assertEquals(1, $container['c']);
+    $this->assertTrue($gotCalled);
+  }
+
   public function testValueWithString()
   {
-    $container = new Container('Test');
-    $container->value('test', 'test');
+    $container = (new Container)->value('test', 'test');
 
     $this->assertEquals($container['test'], 'test');
   }
 
   public function testIsset()
   {
-    $container = new Container('Test');
-    $container->value('aValue', null);
+    $container = (new Container)->value('aValue', null);
 
     $this->assertTrue(isset($container['aValue']));
     $this->assertFalse(isset($container['aOtherValue']));
@@ -34,8 +48,7 @@ class ContainerTest extends PHPUnit_Framework_TestCase {
 
   public function testInjectionWithDependeciesArray()
   {
-    $container = new Container('Test');
-    $container->value('aValue', 'Test');
+    $container = (new Container)->value('aValue', 'Test');
 
     $container->factory('aFactory', ['aValue', function($aOtherValue) {
       return $aOtherValue;
@@ -46,8 +59,7 @@ class ContainerTest extends PHPUnit_Framework_TestCase {
 
   public function testInjectionWithParameterName()
   {
-    $container = new Container('Test');
-    $container->value('aValue', 'Test');
+    $container = (new Container)->value('aValue', 'Test');
 
     $container->factory('aFactory', function($aValue) {
       return $aValue;
@@ -63,13 +75,13 @@ class ContainerTest extends PHPUnit_Framework_TestCase {
   
   public function testDependenyNotFound()
   {
-    $container = new Container('Test');
+    $container = new Container;
     $container['UnknownKey'];
   }
 
   public function testService()
   {
-    $container = (new Container('Test'))
+    $container = (new Container)
       ->value('aValue', 'The value')
       ->service('aService', 'SomeService');
 
@@ -81,7 +93,7 @@ class ContainerTest extends PHPUnit_Framework_TestCase {
   public function testFactoryWithClosureAndParameter()
   {
     $value = 'The value';
-    $container = (new Container('Test'))
+    $container = (new Container)
       ->value('aValue', $value)
       ->factory('aFactory', function($aValue) {
         return $aValue;
@@ -93,7 +105,7 @@ class ContainerTest extends PHPUnit_Framework_TestCase {
   public function testFactoryWithClosureAndDepedencyArray()
   {
     $value = 'The value';
-    $container = (new Container('Test'))
+    $container = (new Container)
       ->value('aValue', $value)
       ->factory('aFactory', ['aValue', function($aOtherValue){
         return $aOtherValue;
@@ -106,39 +118,11 @@ class ContainerTest extends PHPUnit_Framework_TestCase {
   {
     $value = 'The value';
     $factory = new SomeFactory();
-    $container = (new Container('Test'))
+    $container = (new Container)
       ->value('aValue', $value)
       ->factory('aFactory', [$factory, 'someMethod']);
 
     $this->assertEquals($container['aFactory'], $value);
-  }
-
-  public function testFactoryWithCallableArrayAndDependencyArray()
-  {
-    $value = 'The value';
-    $factory = new SomeFactory();
-    $container = (new Container)
-      ->value('aValue', $value)
-      ->factory('aFactory', ['aValue', [$factory, 'someMethod']]);
-
-    $this->assertEquals($container['aFactory'], $value);
-  }
-
-  public function testFactoryWithInnerCallback()
-  {
-    $gotCalled = false;
-
-    $container = (new Container)
-      ->value('Dep', 1)
-      ->value('InnerCallback', function($dep) use (&$gotCalled) {
-        $gotCalled = true;
-        $this->assertEquals(1, $dep);
-      })
-      ->factory('Test', ['Dep', ['InnerCallback']]);
-
-    $container['Test'];
-
-    $this->assertTrue($gotCalled);
   }
 
   public function testProvider()
@@ -158,7 +142,7 @@ class ContainerTest extends PHPUnit_Framework_TestCase {
   
   public function testProviderWithNoneObjectOrArray()
   {
-    $container = (new Container())
+    $container = (new Container)
       ->provider('Test', 'invalid-argument');
   }
 
@@ -168,7 +152,7 @@ class ContainerTest extends PHPUnit_Framework_TestCase {
   
   public function testProviderWithMissinfFactory()
   {
-    $container = (new Container())
+    $container = (new Container)
       ->provider('Test', ['factorrrry' => ['Test']]);
   }
 
@@ -208,7 +192,7 @@ class ContainerTest extends PHPUnit_Framework_TestCase {
 
   public function testConfig()
   {
-    $container = (new Container())
+    $container = (new Container)
       ->value('Test', 'Value')
       ->config(['TestProvider', function($testProvider){
 
@@ -226,12 +210,45 @@ class ContainerTest extends PHPUnit_Framework_TestCase {
       // Some provider
       ->provider('Controller', new SomeActionControllerProvider())
 
-      // Some factory using a provider function as factory
-      ->factory('ActionOne', ['Dep1', 'Dep2', ['Controller', 'actionOne']])
-      ->factory('ActionTwo', ['Dep2', 'Dep1', ['Controller', 'actionTwo']]);
+      // Some factory
+      ->factory('ControllerFactory', [function() {
+        return function ($a, $b) {
+          return "$a $b";
+        };
+      }])
 
-    $this->assertEquals($container['ActionOne'], 'A B');
-    $this->assertEquals($container['ActionTwo'], 'B A');
+      // Some value
+      ->value('ControllerValue', function ($a, $b) {
+        return "$b $a";
+      })
+
+      // Some factory using a provider function as factory
+      ->factory('Action1', ['Dep1', 'Dep2', ['Controller', 'actionOne']])
+      ->factory('Action2', ['Dep2', 'Dep1', ['Controller', 'actionTwo']])
+      ->factory('Action3', ['Dep1', 'Dep2', ['ControllerFactory']])
+      ->factory('Action4', ['Dep1', 'Dep2', ['ControllerValue']]);
+
+    $this->assertEquals($container['Action1'], 'A B');
+    $this->assertEquals($container['Action2'], 'B A');
+    $this->assertEquals($container['Action3'], 'A B');
+    $this->assertEquals($container['Action4'], 'B A');
+  }
+
+  /**
+   * @expectedException InvalidArgumentException
+   */
+  
+  public function testInvalidLateBind()
+  {
+    $container = (new Container)
+      // Some simple values
+      ->value('Dep1', 'A')
+      ->value('Dep2', 'B')
+      ->value('ControllerValue', 'no-callable')
+
+      ->factory('Action', ['Dep1', 'Dep2', ['ControllerValue']]);
+
+    $container['Action'];
   }
 
   public function testContainerMerge()
@@ -240,11 +257,11 @@ class ContainerTest extends PHPUnit_Framework_TestCase {
       ->value('A', 1)
       ->constant('C1', 1);
 
-    $container_2 = (new Container)
+    $container_2 = (new Container($container_1))
       ->value('B', 2)
       ->constant('C2', 2);
 
-    $container = (new Container($container_1, $container_2))
+    $container = (new Container($container_2))
       ->value('C', 3)
       ->constant('C3', 3);
 
@@ -337,5 +354,20 @@ class ContainerTest extends PHPUnit_Framework_TestCase {
   {
     $container = new Container;
     unset($container['Test']);
+  }
+
+
+  /**
+   * @expectedException InvalidArgumentException
+   */
+  
+  public function testInvalidCacheClassName()
+  {
+    Container::setCacheClassName(Foo::CLASS);
+  }
+
+  public function testCacheClassName()
+  {
+    Container::setCacheClassName(ArrayCache::CLASS);
   }
 }

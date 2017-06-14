@@ -2,6 +2,7 @@
 
 use ieu\Container\Injector;
 use ieu\Container\Tracer;
+use ieu\Container\ArrayCache;
 
 require_once __DIR__ .'/fixtures/Foo.php';
 
@@ -11,14 +12,11 @@ require_once __DIR__ .'/fixtures/Foo.php';
  */
 class InjectorTest extends PHPUnit_Framework_TestCase {
 
-  public function setUp()
-  {
-    
-  }
-
   public function testHas()
   {
-    $cache = new ArrayObject(['key' => 'value']);
+    $cache = new ArrayCache;
+    $cache->set('key', 'value');
+
     $injector = new Injector($cache, function(){}, new Tracer);
 
     $this->assertTrue($injector->has('key'));
@@ -27,7 +25,8 @@ class InjectorTest extends PHPUnit_Framework_TestCase {
 
   public function testGet()
   {
-    $cache = new ArrayObject(['key' => 'value']);
+    $cache = new ArrayCache;
+    $cache->set('key', 'value');
     $injector = new Injector($cache, function($key){
       return $this->cache[$key]; 
     }, new Tracer);
@@ -39,12 +38,11 @@ class InjectorTest extends PHPUnit_Framework_TestCase {
   public function testInvoke()
   {
     // Depedencies
-    $cache = new ArrayObject([
-      'key' => 'value'
-    ]);
+    $cache = new ArrayCache;
+    $cache->set('key', 'value');
 
     $injector = new Injector($cache, function($key){
-      return $this->cache[$key]; 
+      return $this->cache->get($key); 
     }, new Tracer);
 
     // Usual case
@@ -69,14 +67,15 @@ class InjectorTest extends PHPUnit_Framework_TestCase {
   public function testInstantiate()
   {
     // Depedencies
-    $cache = new ArrayObject([
+    $cache = new ArrayCache;
+    $cache->setMultiple([
       'A' => 1,
       'B' => 2,
       'C' => 3
     ]);
 
     $injector = new Injector($cache, function($key){
-      return $this->cache[$key]; 
+      return $this->cache->get($key); 
     }, new Tracer);
 
     // Usual case
@@ -106,14 +105,15 @@ class InjectorTest extends PHPUnit_Framework_TestCase {
   public function testInstantiateWithUnkownConstructor()
   {
     // Depedencies
-    $cache = new ArrayObject([
+    $cache = new ArrayCache;
+    $cache->setMultiple([
       'A' => 1,
       'B' => 2,
       'C' => 3
     ]);
 
     $injector = new Injector($cache, function($key){
-      return $this->cache[$key]; 
+      return $this->cache->get($key); 
     }, new Tracer);
 
     $foo = $injector->instantiate(['A', 'B', 'C', 'UnkownClassName']);
@@ -127,7 +127,8 @@ class InjectorTest extends PHPUnit_Framework_TestCase {
   public function testInstantiateWithInvalidConstructor()
   {
     // Depedencies
-    $cache = new ArrayObject([
+    $cache = new ArrayCache;
+    $cache->setMultiple([
       'A' => 1,
       'B' => 2,
       'C' => 3

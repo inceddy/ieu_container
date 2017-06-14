@@ -11,15 +11,15 @@
 
 namespace ieu\Container;
 
+use Psr\SimpleCache\CacheInterface;
 use Closure;
-use ArrayObject;
 use ArrayAccess;
 use ReflectionMethod;
 use ReflectionFunction;
 use ReflectionParameter;
 use Exception;
 use InvalidArgumentException;
-
+use LogicException;
 
 /**
  * Extracts the parameter names of the given callable or 
@@ -93,6 +93,14 @@ class Container implements ArrayAccess {
 	
 	private const STATE_BOOTED  = 20;
 
+	
+	/**
+	 * The class to be used as cache
+	 * @var string
+	 */
+	
+	public static $cacheClassName = ArrayCache::CLASS;
+
 
 	/**
 	 * The cache where all providers are stored
@@ -157,25 +165,19 @@ class Container implements ArrayAccess {
 	 * @param ieu\Container\Container  The containers to merge with this container
 	 */
 	
-	public function __construct()
+	public function __construct(Container $extends = null)
 	{
 		// Set container to initial state
 		$this->state = self::STATE_INITIAL;
 
 		// Setup cache
-		$this->providerCache = new ArrayObject();
-		$this->instanceCache = new ArrayObject();
-
-		foreach (func_get_args() as $container) {
-			if ($container instanceof Container) {
-				foreach ($container->getProviderCache() as $name => $provider) {
-					$this->providerCache[$name] = $provider;
-				}
-
-				foreach ($container->getInstanceCache() as $name => $provider) {
-					$this->providerCache[$name] = $provider;
-				}
-			}
+		if (null !== $extends) {
+			$this->providerCache = $extends->getProviderCache();
+			$this->instanceCache = $extends->getInstanceCache();
+		}
+		else {
+			$this->providerCache = new static::$cacheClassName;
+			$this->instanceCache = new static::$cacheClassName;
 		}
 
 		$this->buildInjectors();
@@ -184,10 +186,11 @@ class Container implements ArrayAccess {
 	/**
 	 * Gets the provider cache
 	 *
-	 * @return ArrayObject  The provider cache.
+	 * @return Psr\SimpleCache\CacheInterface
+	 *    The provider cache
 	 */
 	
-	public function getProviderCache() : ArrayObject
+	public function getProviderCache() : CacheInterface
 	{
 		return $this->providerCache;
 	}
@@ -196,10 +199,11 @@ class Container implements ArrayAccess {
 	/**
 	 * Gets the instance cache
 	 *
-	 * @return ArrayObject  The instance cache.
+	 * @return Psr\SimpleCache\CacheInterface
+	 *    The instance cache
 	 */
 	
-	public function getInstanceCache() : ArrayObject
+	public function getInstanceCache() : CacheInterface
 	{
 		return $this->instanceCache;
 	}
@@ -216,7 +220,7 @@ class Container implements ArrayAccess {
 		// Debug tracer
 		$this->tracer = new Tracer;
 
-		// Provider injector
+		// Build provider injector
 		$providerInjector =
 		$this->providerInjector = new Injector(
 			// Cache
@@ -224,13 +228,13 @@ class Container implements ArrayAccess {
 			// Factory
 			function($name) {
 				$name = substr($name, 0, -8);
-				throw new Exception("Provider for '$name' not found\n" . $this->tracer);
+				throw new LogicException("Provider for '$name' not found\n" . $this->tracer);
 			}, 
 			// Debug tracer
 			$this->tracer
 		);
 
-		// Instance injector
+		// Build instance injector
 		$this->instanceInjector = new Injector(
 			// Cache
 			$this->instanceCache, 
@@ -238,23 +242,16 @@ class Container implements ArrayAccess {
 			function($name) use ($providerInjector) {
 				$this->tracer->request($name);
 
-				// Constant
-				if ($providerInjector->has($name)) {
-					$instance = $providerInjector->get($name);
-				}
-
-				// Provider
-				else {
-					$provider = $providerInjector->get($name . 'Provider');
-					// Determin factory dependencies
-					$factoryAndDependencies = Container::getDependencyArray($provider->factory);
-					$instance = $this->invoke($factoryAndDependencies);
-				}
+				$provider = $providerInjector->get($name . 'Provider');
+				// Determin factory dependencies
+				$factoryAndDependencies = Container::getDependencyArray($provider->factory);
+				$instance = $this->invoke($factoryAndDependencies);
 
 				$this->tracer->received($name);
 
 				return $instance;
 			}, 
+			// Debug tracer
 			$this->tracer
 		);
 
@@ -267,40 +264,6 @@ class Container implements ArrayAccess {
 		$this->provider('Injector', (object)['factory' => [function() {
 			return $this->instanceInjector;
 		}]]);
-	}
-
-	/**
-	 * Checks if an callable or a classname is wraped in a dependency-factory-array
-	 * `['aDependency', 'aOtherDependency', $callableOrClassname]`.
-	 * If not the argument will be treated as factory and the dependencys will be
-	 * extracted from the function, method or constructor arguments.
-	 *
-	 * @see ieu\Container\
-	 *
-	 * @param  mixed $argument  The argument to check whether it is a valid depedency-factory-array
-	 *                          or just a factory.
-	 *
-	 * @return array            The dependency array
-	 * 
-	 */
-	
-	public static function getDependencyArray($argument)
-	{
-		// Must condition: A dependency-factory-array is an array
-		if (is_array($argument)) {
-			// Must condition: A last element in a dependency-factory-array is
-			//                 - an array: [ClassName|Object, Method]
-			//                 - an callable: Closure, Invokeable, ClassName::StaticMethod-string
-			//                 - an classname
-			if (is_array(end($argument)) || is_callable(end($argument)) || class_exists(end($argument))) {
-				return $argument;
-			}
-		}
-
-		// Try to extract parameters from argument and combine it to an dependency-factory-array
-		$parameter = extractParameters($argument);
-		array_push($parameter, $argument);
-		return $parameter;
 	}
 
 
@@ -330,7 +293,7 @@ class Container implements ArrayAccess {
 			throw new InvalidArgumentException('The provider must be an object with public property \'factory\'.');
 		}
 
-		$this->providerCache[$name . 'Provider'] = $provider;
+		$this->providerCache->set($name . 'Provider', $provider);
 
 		return $this;
 	}
@@ -411,10 +374,9 @@ class Container implements ArrayAccess {
 	 * 
 	 */
 	
-	public function factory($name, $factory)
+	public function factory(string $name, $factory)
 	{
-		$dependenciesAndFactory = self::getDependencyArray($factory);
-		return $this->provider($name, (object)['factory' => $dependenciesAndFactory]);
+		return $this->provider($name, (object)['factory' => $factory]);
 	}
 
 
@@ -449,8 +411,8 @@ class Container implements ArrayAccess {
 	
 	public function constant(string $name, $value)
 	{
-		$this->providerCache[$name] = $value;
-		$this->instanceCache[$name] = $value;
+		$this->providerCache->set($name, $value);
+		$this->instanceCache->set($name, $value);
 
 		return $this;
 	}
@@ -466,7 +428,7 @@ class Container implements ArrayAccess {
 	 * 
 	 */
 	
-	public function config(array $config)
+	public function config($config)
 	{
 		$this->configs[] = $config;
 		return $this;
@@ -485,7 +447,7 @@ class Container implements ArrayAccess {
 		$this->state = self::STATE_CONFIG;
 
 		foreach ($this->configs as $config) {
-			$dependenciesAndCallable = $this->getDependencyArray($config);
+			$dependenciesAndCallable = self::getDependencyArray($config);
 
 			$callable = array_pop($dependenciesAndCallable);
 			$dependencies = array_map([$this->providerInjector, 'get'], $dependenciesAndCallable);
@@ -613,6 +575,68 @@ class Container implements ArrayAccess {
 	
 	public function offsetUnset($name)
 	{
-		throw new \Exception("Not implemented");		
+		throw new Exception("Not implemented");		
+	}
+
+
+	/**
+	 * Checks if an callable or a classname is wraped in a dependency-factory-array
+	 * `['aDependency', 'aOtherDependency', $callableOrClassname]`.
+	 * If not the argument will be treated as factory and the dependencys will be
+	 * extracted from the function, method or constructor arguments.
+	 *
+	 * @see ieu\Container\
+	 *
+	 * @param  mixed $argument  The argument to check whether it is a valid depedency-factory-array
+	 *                          or just a factory.
+	 *
+	 * @return array            The dependency array
+	 * 
+	 */
+	
+	public static function getDependencyArray($argument)
+	{
+		// Must condition: A dependency-factory-array is an array
+		if (is_array($argument)) {
+			// Must condition: A last element in a dependency-factory-array is
+			//                 - an array: [ClassName|Object, Method]
+			//                 - an callable: Closure, Invokeable, ClassName::StaticMethod-string
+			//                 - an classname
+			
+			$factory = end($argument);
+
+			if (is_array($factory) || is_callable($factory) || class_exists($factory)) {
+				return $argument;
+			}
+		}
+
+		// Try to extract parameters from argument and combine it to an dependency-factory-array
+		$parameter = extractParameters($argument);
+		array_push($parameter, $argument);
+		return $parameter;
+	}
+
+	/**
+	 * Setter for cache class name.
+	 * Given class name must implement Pst\SimpleCache\CacheInterface
+	 *
+	 * @throws InvalidArgumentException
+	 *    When $className is not a class or does not 
+	 *    implement the cache interface
+	 *
+	 * @param void
+	 */
+	
+	public static function setCacheClassName(string $className) : void
+	{
+		if (!class_exists($className) || !in_array(CacheInterface::CLASS, class_implements($className))) {
+			throw new InvalidArgumentException(sprintf(
+				'Class [%s] does exist or does not implement [%s].',
+				$className,
+				CacheInterface::CLASS
+			));
+		}
+
+		static::$cacheClassName = $className;
 	}
 }
