@@ -3,7 +3,7 @@
     "description": "ieUtilities - Dependency container",
     "type": "",
     "license": "MIT",
-    "version": "2.0.0",
+    "version": "2.0.1",
     "authors": [
         {
             "name": "Philipp Steingrebe",
@@ -14,5 +14,8 @@
         "psr-0" : {
             "ieu\\" : "src/"
         }
+    },
+    "require": {
+        "psr/simple-cache": "^1.0"
     }
 }
